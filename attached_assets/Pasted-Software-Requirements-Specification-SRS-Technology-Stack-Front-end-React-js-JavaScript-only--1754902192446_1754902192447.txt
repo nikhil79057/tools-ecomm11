@@ -1,0 +1,240 @@
+Software Requirements Specification (SRS)
+
+Technology Stack Front-end: React.js (JavaScript only, no TypeScript) + Tailwind CSS
+Back-end: Node.js
+
+Database: MySQL (Hosted on Hostinger server)
+
+Authentication: JWT (JSON Web Token) with refresh token mechanism
+
+Payments & Billing: Razorpay for subscriptions and manual one-off invoices
+
+Email & PDF Handling: Nodemailer (or SendGrid) for emails + PDFKit (or Puppeteer) for generating downloadable PDFs
+
+Public Landing Page The public website will act as a marketing and onboarding entry point. All sections will be editable from the Admin Portal via a WYSIWYG editor.
+Sections:
+
+Hero Section: Editable image, headline, and tagline.
+
+Features Section: Icon + title + description cards, all configurable.
+
+Pricing Table: List of plans with prices, features, and checkmarks.
+
+Footer & Contact Information: Editable contact details and links.
+
+Seller-Facing Module 3.1 Onboarding & Authentication Seller can sign up, log in, and reset password.
+Email verification is required for account activation.
+
+On successful signup, an automated “Welcome Guide” PDF is emailed.
+
+3.2 Seller Dashboard
+Overview of:
+
+Active tools
+
+Current usage metrics
+
+Next billing date
+
+Menu dynamically updates to show only tools the seller has subscribed to.
+
+3.3 Tool Catalog & Subscription
+Displays all available micro-tools with title, icon, description, and pricing.
+
+Subscribe button → Redirects to Razorpay checkout (₹5 per tool per month, billed annually).
+
+After successful payment, the seller gets instant tool access.
+
+3.4 Keyword Research & Backend Formatter (First Tool)
+Inputs:
+
+Seed keyword
+
+Platform selection (Amazon, Flipkart, or both)
+
+Processing:
+
+Fetch top 10 keyword suggestions per platform
+
+Estimate monthly search volumes (via autocomplete + AI API)
+
+Outputs:
+
+Table showing keyword + volume
+
+Comma-separated keyword list per platform
+
+Actions Available:
+
+Copy results to clipboard
+
+Export results as CSV
+
+3.5 Account & Billing
+View subscription status, active tools, and usage history
+
+Download all past invoices in PDF format
+
+Update payment method, cancel subscription, or upgrade plan
+
+Admin Portal 4.1 User Management List all sellers with search and filtering
+View subscription status and tool usage
+
+4.2 Tool Management
+Create and edit tools (title, icon, rich-text description, price)
+
+Enable/disable tools globally
+
+Change tool pricing or create bundles instantly
+
+4.3 Manual Invoicing
+Generate and send one-off invoice PDFs to any seller
+
+Email invoices as PDF attachments directly from the portal
+
+4.4 Landing Page CMS
+Edit hero, features, pricing table, and FAQs via WYSIWYG editor
+
+4.5 Email & Notification Center
+Onboarding Email Sequences: Configurable day-1, day-3, and day-7 welcome emails
+
+Periodic Emails: Monthly usage reports, renewal reminders, and upsell offers
+
+Invoice Emails: Auto-generated for subscription renewals or manual invoices
+
+4.6 Analytics & Reporting
+Metrics: Monthly Recurring Revenue (MRR), churn rate, tool usage trends
+
+Export reports as CSV or PDF
+
+4.7 Webhook & Alerts
+Handle Razorpay webhooks for subscription events
+
+Notify admin of failed payments or high churn risk
+
+Functional Flow Summary
+Public Landing Page → Market product and capture signups.
+
+Seller Onboarding → Email verification and automated guide delivery.
+
+Seller Dashboard → Manage tools, subscriptions, and billing.
+
+Keyword Research Tool → First functional tool behind the paywall.
+
+Admin Portal → Full control over users, tools, pricing, CMS, billing, and analytics.
+
+Here’s the functional flow diagram for your SRS so your developer can see the whole process at a glance.
+
+Functional Flow Diagram
+mermaid
+Copy
+Edit
+flowchart TD
+
+%% Public Landing Page
+A[Public Landing Page] -->|Seller clicks Sign Up| B[Signup Form]
+A -->|View Pricing| P[Pricing Table]
+
+%% Seller Onboarding
+B --> C[Email Verification]
+C -->|Verified| D[Welcome PDF via Email]
+
+%% Seller Dashboard
+D --> E[Seller Dashboard]
+E --> F[Tool Catalog]
+F -->|Subscribe via Razorpay| G[Razorpay Checkout]
+G -->|Payment Success| H[Grant Tool Access]
+H --> E
+
+%% Keyword Research Tool
+E -->|Click Tool| I[Keyword Research Tool]
+I --> J[Enter Keyword & Select Platform]
+J --> K[Fetch Suggestions & Volumes]
+K --> L[Display Table + Comma-Separated Lists]
+L --> M[Copy to Clipboard or Export CSV]
+
+%% Account & Billing
+E --> N[Account & Billing]
+N --> O[View Subscriptions, Invoices, Update Payment]
+
+%% Admin Portal
+Q[Admin Portal] --> Q1[User Management]
+Q --> Q2[Tool Management]
+Q --> Q3[Manual Invoicing]
+Q --> Q4[Landing Page CMS]
+Q --> Q5[Email & Notification Center]
+Q --> Q6[Analytics & Reporting]
+Q --> Q7[Webhook & Alerts]
+
+%% Webhooks
+G -->|Payment Event| Q7
+Flow Description
+A → B → C → D: Seller signs up, verifies email, and receives a welcome PDF.
+
+E → F → G → H: Seller views available tools, pays via Razorpay, and gets instant access.
+
+E → I → J → K → L → M: Seller uses Keyword Research Tool to generate results.
+
+E → N → O: Seller manages subscriptions, billing, and invoices.
+
+Q → Q1–Q7: Admin manages users, tools, pricing, CMS, invoicing, emails, analytics, and payment events.
+
+Backend Data Flow Diagram
+mermaid
+Copy
+Edit
+flowchart LR
+
+%% Seller Side
+U[Seller Browser (React.js)] -->|Signup/Login| API[Node.js Backend]
+API -->|Generate JWT + Refresh Token| U
+
+%% Database
+API <--> DB[(MySQL Database)]
+DB:::db
+
+%% Payments
+U -->|Checkout| R[Razorpay]
+R -->|Payment Status Webhook| API
+API -->|Update Subscriptions| DB
+
+%% Email & PDF
+API --> E[Email Service (Nodemailer/SendGrid)]
+API --> P[PDF Generator (PDFKit/Puppeteer)]
+P --> E
+E -->|Send Welcome PDF, Invoices, Notifications| U
+
+%% Keyword Tool
+U -->|Keyword Request| API
+API -->|Fetch Suggestions & Volumes| AI[Autocomplete/AI API]
+API -->|Store Usage| DB
+API -->|Return Results| U
+
+%% Admin Portal
+A[Admin Browser] -->|Login| API
+A -->|Manage Users, Tools, CMS| API
+API --> DB
+
+classDef db fill:#f9f,stroke:#333,stroke-width:1px;
+How It Works Step-by-Step
+Authentication Flow
+
+Seller signs up → Node.js creates JWT + refresh token → Stores in MySQL.
+
+Payment Flow
+
+Razorpay checkout → Payment webhook to Node.js → Updates subscription status in MySQL.
+
+Email & PDF Flow
+
+Onboarding, invoices, and notifications generated via PDFKit/Puppeteer and sent using Nodemailer/SendGrid.
+
+Keyword Research Flow
+
+Seller requests keywords → Node.js calls external AI/autocomplete API → Stores usage in DB → Returns results.
+
+Admin Flow
+
+Admin logs in → Can fully manage users, tools, pricing, CMS, and billing via the same Node.js backend.
+
+create an fully functinalited software
