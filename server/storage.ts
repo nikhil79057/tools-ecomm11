@@ -31,24 +31,29 @@ export interface IStorage {
   getTool(id: string): Promise<Tool | undefined>;
   createTool(tool: InsertTool): Promise<Tool>;
   updateTool(id: string, tool: Partial<InsertTool>): Promise<Tool>;
+  deleteTool(id: string): Promise<void>;
   
   // Subscription operations
   getUserSubscriptions(userId: string): Promise<(Subscription & { tool: Tool })[]>;
   getActiveSubscription(userId: string, toolId: string): Promise<Subscription | undefined>;
   createSubscription(subscription: InsertSubscription): Promise<Subscription>;
   updateSubscription(id: string, updates: Partial<InsertSubscription>): Promise<Subscription>;
+  cancelSubscription(id: string): Promise<Subscription>;
   
   // Keyword research operations
   createKeywordResearch(research: InsertKeywordResearch): Promise<KeywordResearch>;
   getUserKeywordResearches(userId: string, limit?: number): Promise<KeywordResearch[]>;
+  getAllKeywordResearches(limit?: number): Promise<KeywordResearch[]>;
   
   // Usage tracking
   createUsageStats(usage: InsertUsageStats): Promise<UsageStats>;
   getUserUsageStats(userId: string, toolId?: string): Promise<{ searches: number; exports: number; apiCalls: number }>;
+  getAllUsageStats(): Promise<UsageStats[]>;
   
   // CMS operations
   getCmsContent(section: string): Promise<CmsContent | undefined>;
   updateCmsContent(section: string, content: any): Promise<CmsContent>;
+  getAllCmsContent(): Promise<CmsContent[]>;
   
   // Admin operations
   getAllUsers(): Promise<User[]>;
@@ -62,6 +67,9 @@ export interface IStorage {
     revenueGrowth: number;
     subscriberGrowth: number;
   }>;
+  updateUserRole(userId: string, role: string): Promise<User>;
+  suspendUser(userId: string): Promise<User>;
+  activateUser(userId: string): Promise<User>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -110,6 +118,9 @@ export class DatabaseStorage implements IStorage {
     return updatedTool;
   }
 
+  async deleteTool(id: string): Promise<void> {
+    await db.delete(tools).where(eq(tools.id, id));
+  }
   // Subscription operations
   async getUserSubscriptions(userId: string): Promise<(Subscription & { tools: Tool })[]> {
     const results = await db
@@ -150,6 +161,14 @@ export class DatabaseStorage implements IStorage {
     return updatedSubscription;
   }
 
+  async cancelSubscription(id: string): Promise<Subscription> {
+    const [cancelledSubscription] = await db
+      .update(subscriptions)
+      .set({ status: "cancelled", updatedAt: new Date() })
+      .where(eq(subscriptions.id, id))
+      .returning();
+    return cancelledSubscription;
+  }
   // Keyword research operations
   async createKeywordResearch(research: InsertKeywordResearch): Promise<KeywordResearch> {
     const [newResearch] = await db.insert(keywordResearches).values(research).returning();
@@ -165,6 +184,13 @@ export class DatabaseStorage implements IStorage {
       .limit(limit);
   }
 
+  async getAllKeywordResearches(limit = 50): Promise<KeywordResearch[]> {
+    return await db
+      .select()
+      .from(keywordResearches)
+      .orderBy(desc(keywordResearches.createdAt))
+      .limit(limit);
+  }
   // Usage tracking
   async createUsageStats(usage: InsertUsageStats): Promise<UsageStats> {
     const [newUsage] = await db.insert(usageStats).values(usage).returning();
@@ -291,5 +317,31 @@ export class DatabaseStorage implements IStorage {
     };
   }
 }
+  async updateUserRole(userId: string, role: string): Promise<User> {
+    const [updatedUser] = await db
+      .update(users)
+      .set({ role, updatedAt: new Date() })
+      .where(eq(users.id, userId))
+      .returning();
+    return updatedUser;
+  }
+
+  async suspendUser(userId: string): Promise<User> {
+    const [suspendedUser] = await db
+      .update(users)
+      .set({ role: "suspended", updatedAt: new Date() })
+      .where(eq(users.id, userId))
+      .returning();
+    return suspendedUser;
+  }
+
+  async activateUser(userId: string): Promise<User> {
+    const [activatedUser] = await db
+      .update(users)
+      .set({ role: "seller", updatedAt: new Date() })
+      .where(eq(users.id, userId))
+      .returning();
+    return activatedUser;
+  }
 
 export const storage = new DatabaseStorage();

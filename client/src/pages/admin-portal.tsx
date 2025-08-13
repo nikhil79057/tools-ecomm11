@@ -1,403 +1,356 @@
-import { useState, useEffect } from "react";
-import { useAuth } from "@/hooks/useAuth";
-import { useQuery } from "@tanstack/react-query";
-import { useToast } from "@/hooks/use-toast";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { isUnauthorizedError } from "@/lib/authUtils";
-import UserTable from "@/components/admin/user-table";
+import {
+  users,
+  tools,
+  subscriptions,
+  keywordResearches,
+  usageStats,
+  cmsContent,
+  type User,
+  type UpsertUser,
+  type Tool,
+  type InsertTool,
+  type Subscription,
+  type InsertSubscription,
+  type KeywordResearch,
+  type InsertKeywordResearch,
+  type UsageStats,
+  type InsertUsageStats,
+  type CmsContent,
+  type InsertCmsContent,
+} from "@shared/schema";
+import { db } from "./db";
+import { eq, and, desc, count } from "drizzle-orm";
 
-export default function AdminPortal() {
-  const { user, isAuthenticated, isLoading } = useAuth();
-  const { toast } = useToast();
-  const [activeSection, setActiveSection] = useState('users');
+export interface IStorage {
+  // User operations (IMPORTANT) these are mandatory for Replit Auth
+  getUser(id: string): Promise<User | undefined>;
+  upsertUser(user: UpsertUser): Promise<User>;
+  
+  // Tool operations
+  getAllTools(): Promise<Tool[]>;
+  getTool(id: string): Promise<Tool | undefined>;
+  createTool(tool: InsertTool): Promise<Tool>;
+  updateTool(id: string, tool: Partial<InsertTool>): Promise<Tool>;
+  deleteTool(id: string): Promise<void>;
+  
+  // Subscription operations
+  getUserSubscriptions(userId: string): Promise<(Subscription & { tool: Tool })[]>;
+  getActiveSubscription(userId: string, toolId: string): Promise<Subscription | undefined>;
+  createSubscription(subscription: InsertSubscription): Promise<Subscription>;
+  updateSubscription(id: string, updates: Partial<InsertSubscription>): Promise<Subscription>;
+  cancelSubscription(id: string): Promise<Subscription>;
+  
+  // Keyword research operations
+  createKeywordResearch(research: InsertKeywordResearch): Promise<KeywordResearch>;
+  getUserKeywordResearches(userId: string, limit?: number): Promise<KeywordResearch[]>;
+  getAllKeywordResearches(limit?: number): Promise<KeywordResearch[]>;
+  
+  // Usage tracking
+  createUsageStats(usage: InsertUsageStats): Promise<UsageStats>;
+  getUserUsageStats(userId: string, toolId?: string): Promise<{ searches: number; exports: number; apiCalls: number }>;
+  getAllUsageStats(): Promise<UsageStats[]>;
+  
+  // CMS operations
+  getCmsContent(section: string): Promise<CmsContent | undefined>;
+  updateCmsContent(section: string, content: any): Promise<CmsContent>;
+  getAllCmsContent(): Promise<CmsContent[]>;
+  
+  // Admin operations
+  getAllUsers(): Promise<User[]>;
+  getUsersWithSubscriptions(): Promise<(User & { subscriptions: (Subscription & { tool: Tool })[] })[]>;
+  getToolAnalytics(toolId: string): Promise<{ subscribers: number; revenue: number; usage: number }>;
+  getPlatformAnalytics(): Promise<{ 
+    mrr: number; 
+    activeSubscribers: number; 
+    churnRate: number; 
+    totalSearches: number;
+    revenueGrowth: number;
+    subscriberGrowth: number;
+  }>;
+  updateUserRole(userId: string, role: string): Promise<User>;
+  suspendUser(userId: string): Promise<User>;
+  activateUser(userId: string): Promise<User>;
+}
 
-  useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
-      toast({
-        title: "Unauthorized",
-        description: "You are logged out. Logging in again...",
-        variant: "destructive",
-      });
-      setTimeout(() => {
-        window.location.href = "/api/login";
-      }, 500);
-      return;
-    }
-
-    if (!isLoading && user?.role !== 'admin') {
-      toast({
-        title: "Access Denied",
-        description: "Admin access required",
-        variant: "destructive",
-      });
-      window.location.href = "/";
-      return;
-    }
-  }, [isAuthenticated, isLoading, user, toast]);
-
-  const { data: users, isLoading: usersLoading } = useQuery({
-    queryKey: ["/api/admin/users"],
-    retry: false,
-  });
-
-  const { data: analytics, isLoading: analyticsLoading } = useQuery({
-    queryKey: ["/api/admin/analytics"],
-    retry: false,
-  });
-
-  const { data: tools, isLoading: toolsLoading } = useQuery({
-    queryKey: ["/api/tools"],
-    retry: false,
-  });
-
-  if (isLoading || usersLoading || analyticsLoading || toolsLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="text-center">
-          <div className="animate-spin w-8 h-8 border-4 border-primary-600 border-t-transparent rounded-full mx-auto mb-4"></div>
-          <p className="text-slate-600">Loading admin portal...</p>
-        </div>
-      </div>
-    );
+export class DatabaseStorage implements IStorage {
+  // User operations
+  async getUser(id: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user;
   }
 
-  return (
-    <div className="min-h-screen bg-slate-50">
-      {/* Admin Header */}
-      <header className="bg-slate-900 text-white">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-4">
-            <div className="flex items-center space-x-3">
-              <i className="fas fa-cog text-2xl text-primary-500"></i>
-              <span className="text-xl font-bold" data-testid="text-admin-title">
-                Admin Portal
-              </span>
-            </div>
-            <div className="flex items-center space-x-4">
-              <span className="text-slate-300" data-testid="text-admin-welcome">
-                Welcome, {user?.firstName || 'Admin'}
-              </span>
-              <button 
-                onClick={() => window.location.href = "/api/logout"} 
-                className="text-slate-300 hover:text-white transition-colors"
-                data-testid="button-logout"
-              >
-                <i className="fas fa-sign-out-alt"></i>
-              </button>
-            </div>
-          </div>
-        </div>
-      </header>
+  async upsertUser(userData: UpsertUser): Promise<User> {
+    const [user] = await db
+      .insert(users)
+      .values(userData)
+      .onConflictDoUpdate({
+        target: users.id,
+        set: {
+          ...userData,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    return user;
+  }
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Admin Navigation */}
-        <div className="flex space-x-8 mb-8">
-          <button
-            onClick={() => setActiveSection('users')}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              activeSection === 'users'
-                ? 'bg-primary-600 text-white'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-            data-testid="button-nav-users"
-          >
-            <i className="fas fa-users mr-2"></i>Users
-          </button>
-          <button
-            onClick={() => setActiveSection('tools')}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              activeSection === 'tools'
-                ? 'bg-primary-600 text-white'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-            data-testid="button-nav-tools"
-          >
-            <i className="fas fa-tools mr-2"></i>Tools
-          </button>
-          <button
-            onClick={() => setActiveSection('analytics')}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              activeSection === 'analytics'
-                ? 'bg-primary-600 text-white'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-            data-testid="button-nav-analytics"
-          >
-            <i className="fas fa-chart-line mr-2"></i>Analytics
-          </button>
-          <button
-            onClick={() => setActiveSection('cms')}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              activeSection === 'cms'
-                ? 'bg-primary-600 text-white'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-            data-testid="button-nav-cms"
-          >
-            <i className="fas fa-edit mr-2"></i>CMS
-          </button>
-        </div>
+  // Tool operations
+  async getAllTools(): Promise<Tool[]> {
+    return await db.select().from(tools).where(eq(tools.isActive, true));
+  }
 
-        {/* Users Section */}
-        {activeSection === 'users' && (
-          <div>
-            <div className="mb-8">
-              <h2 className="text-2xl font-bold text-slate-900 mb-2" data-testid="text-users-title">
-                User Management
-              </h2>
-              <p className="text-slate-600" data-testid="text-users-description">
-                Manage sellers, subscriptions, and user data
-              </p>
-            </div>
+  async getTool(id: string): Promise<Tool | undefined> {
+    const [tool] = await db.select().from(tools).where(eq(tools.id, id));
+    return tool;
+  }
 
-            <UserTable users={users || []} />
-          </div>
-        )}
+  async createTool(tool: InsertTool): Promise<Tool> {
+    const [newTool] = await db.insert(tools).values(tool).returning();
+    return newTool;
+  }
 
-        {/* Tools Section */}
-        {activeSection === 'tools' && (
-          <div>
-            <div className="mb-8">
-              <h2 className="text-2xl font-bold text-slate-900 mb-2" data-testid="text-tools-title">
-                Tool Management
-              </h2>
-              <p className="text-slate-600" data-testid="text-tools-description">
-                Create, edit, and manage available tools
-              </p>
-            </div>
+  async updateTool(id: string, tool: Partial<InsertTool>): Promise<Tool> {
+    const [updatedTool] = await db
+      .update(tools)
+      .set({ ...tool, updatedAt: new Date() })
+      .where(eq(tools.id, id))
+      .returning();
+    return updatedTool;
+  }
 
-            <div className="grid lg:grid-cols-2 gap-8">
-              {tools?.map((tool: any, index: number) => (
-                <Card key={tool.id} className="p-6" data-testid={`card-admin-tool-${index}`}>
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex items-center space-x-4">
-                      <div className="w-12 h-12 bg-primary-100 rounded-lg flex items-center justify-center">
-                        <i className={`fas fa-${tool.icon || 'search'} text-primary-600`}></i>
-                      </div>
-                      <div>
-                        <h3 className="text-lg font-semibold text-slate-900" data-testid={`text-admin-tool-name-${index}`}>
-                          {tool.name}
-                        </h3>
-                        <p className="text-slate-600" data-testid={`text-admin-tool-description-${index}`}>
-                          {tool.description}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <button className="text-green-600 bg-green-50 w-8 h-8 rounded-full flex items-center justify-center" data-testid={`button-tool-toggle-${index}`}>
-                        <i className={`fas fa-toggle-${tool.isActive ? 'on' : 'off'}`}></i>
-                      </button>
-                    </div>
-                  </div>
-                  <div className="space-y-3">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-slate-600">Current Price</span>
-                      <span className="font-medium text-slate-900" data-testid={`text-admin-tool-price-${index}`}>
-                        ₹{tool.price}/year
-                      </span>
-                    </div>
-                  </div>
-                  <div className="flex space-x-3 mt-4">
-                    <Button className="flex-1" data-testid={`button-edit-tool-${index}`}>
-                      Edit Tool
-                    </Button>
-                    <Button variant="outline" className="flex-1" data-testid={`button-tool-analytics-${index}`}>
-                      View Analytics
-                    </Button>
-                  </div>
-                </Card>
-              ))}
-            </div>
-          </div>
-        )}
+  async deleteTool(id: string): Promise<void> {
+    await db.delete(tools).where(eq(tools.id, id));
+  }
+  // Subscription operations
+  async getUserSubscriptions(userId: string): Promise<(Subscription & { tool: Tool })[]> {
+    const results = await db
+      .select()
+      .from(subscriptions)
+      .innerJoin(tools, eq(subscriptions.toolId, tools.id))
+      .where(and(eq(subscriptions.userId, userId), eq(subscriptions.status, "active")));
+    
+    return results.map(result => ({
+      ...result.subscriptions,
+      tool: result.tools
+    }));
+  }
 
-        {/* Analytics Section */}
-        {activeSection === 'analytics' && (
-          <div>
-            <div className="mb-8">
-              <h2 className="text-2xl font-bold text-slate-900 mb-2" data-testid="text-analytics-title">
-                Analytics & Reporting
-              </h2>
-              <p className="text-slate-600" data-testid="text-analytics-description">
-                Monitor business metrics and user behavior
-              </p>
-            </div>
+  async getActiveSubscription(userId: string, toolId: string): Promise<Subscription | undefined> {
+    const [subscription] = await db
+      .select()
+      .from(subscriptions)
+      .where(and(
+        eq(subscriptions.userId, userId),
+        eq(subscriptions.toolId, toolId),
+        eq(subscriptions.status, "active")
+      ));
+    return subscription;
+  }
 
-            <div className="grid lg:grid-cols-4 gap-6 mb-8">
-              <Card className="p-6" data-testid="card-mrr">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-slate-600">Monthly Recurring Revenue</p>
-                    <p className="text-2xl font-bold text-slate-900" data-testid="text-mrr">
-                      ₹{analytics?.mrr || 0}
-                    </p>
-                    <p className="text-sm text-success">+{analytics?.revenueGrowth || 0}% from last month</p>
-                  </div>
-                  <div className="w-12 h-12 bg-success/10 rounded-lg flex items-center justify-center">
-                    <i className="fas fa-rupee-sign text-success"></i>
-                  </div>
-                </div>
-              </Card>
+  async createSubscription(subscription: InsertSubscription): Promise<Subscription> {
+    const [newSubscription] = await db.insert(subscriptions).values(subscription).returning();
+    return newSubscription;
+  }
 
-              <Card className="p-6" data-testid="card-subscribers">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-slate-600">Active Subscribers</p>
-                    <p className="text-2xl font-bold text-slate-900" data-testid="text-subscribers">
-                      {analytics?.activeSubscribers || 0}
-                    </p>
-                    <p className="text-sm text-success">+{analytics?.subscriberGrowth || 0}% from last month</p>
-                  </div>
-                  <div className="w-12 h-12 bg-primary-100 rounded-lg flex items-center justify-center">
-                    <i className="fas fa-users text-primary-600"></i>
-                  </div>
-                </div>
-              </Card>
+  async updateSubscription(id: string, updates: Partial<InsertSubscription>): Promise<Subscription> {
+    const [updatedSubscription] = await db
+      .update(subscriptions)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(subscriptions.id, id))
+      .returning();
+    return updatedSubscription;
+  }
 
-              <Card className="p-6" data-testid="card-churn">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-slate-600">Churn Rate</p>
-                    <p className="text-2xl font-bold text-slate-900" data-testid="text-churn">
-                      {analytics?.churnRate || 0}%
-                    </p>
-                    <p className="text-sm text-danger">Target: &lt;3%</p>
-                  </div>
-                  <div className="w-12 h-12 bg-danger/10 rounded-lg flex items-center justify-center">
-                    <i className="fas fa-chart-line text-danger"></i>
-                  </div>
-                </div>
-              </Card>
+  async cancelSubscription(id: string): Promise<Subscription> {
+    const [cancelledSubscription] = await db
+      .update(subscriptions)
+      .set({ status: "cancelled", updatedAt: new Date() })
+      .where(eq(subscriptions.id, id))
+      .returning();
+    return cancelledSubscription;
+  }
+  // Keyword research operations
+  async createKeywordResearch(research: InsertKeywordResearch): Promise<KeywordResearch> {
+    const [newResearch] = await db.insert(keywordResearches).values(research).returning();
+    return newResearch;
+  }
 
-              <Card className="p-6" data-testid="card-searches">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-slate-600">Total Searches</p>
-                    <p className="text-2xl font-bold text-slate-900" data-testid="text-total-searches">
-                      {analytics?.totalSearches || 0}
-                    </p>
-                    <p className="text-sm text-success">This month</p>
-                  </div>
-                  <div className="w-12 h-12 bg-warning/10 rounded-lg flex items-center justify-center">
-                    <i className="fas fa-search text-warning"></i>
-                  </div>
-                </div>
-              </Card>
-            </div>
+  async getUserKeywordResearches(userId: string, limit = 10): Promise<KeywordResearch[]> {
+    return await db
+      .select()
+      .from(keywordResearches)
+      .where(eq(keywordResearches.userId, userId))
+      .orderBy(desc(keywordResearches.createdAt))
+      .limit(limit);
+  }
 
-            {/* Charts Placeholder */}
-            <div className="grid lg:grid-cols-2 gap-8">
-              <Card className="p-6" data-testid="card-revenue-chart">
-                <CardHeader>
-                  <CardTitle>Revenue Trend</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="h-64 bg-slate-50 rounded-lg flex items-center justify-center">
-                    <p className="text-slate-500" data-testid="text-chart-placeholder">
-                      Chart visualization would go here
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
+  async getAllKeywordResearches(limit = 50): Promise<KeywordResearch[]> {
+    return await db
+      .select()
+      .from(keywordResearches)
+      .orderBy(desc(keywordResearches.createdAt))
+      .limit(limit);
+  }
+  // Usage tracking
+  async createUsageStats(usage: InsertUsageStats): Promise<UsageStats> {
+    const [newUsage] = await db.insert(usageStats).values(usage).returning();
+    return newUsage;
+  }
 
-              <Card className="p-6" data-testid="card-growth-chart">
-                <CardHeader>
-                  <CardTitle>User Growth</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="h-64 bg-slate-50 rounded-lg flex items-center justify-center">
-                    <p className="text-slate-500" data-testid="text-chart-placeholder-2">
-                      Chart visualization would go here
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
-        )}
+  async getUserUsageStats(userId: string, toolId?: string): Promise<{ searches: number; exports: number; apiCalls: number }> {
+    const baseQuery = db
+      .select({ actionType: usageStats.actionType })
+      .from(usageStats)
+      .where(eq(usageStats.userId, userId));
 
-        {/* CMS Section */}
-        {activeSection === 'cms' && (
-          <div>
-            <div className="mb-8">
-              <h2 className="text-2xl font-bold text-slate-900 mb-2" data-testid="text-cms-title">
-                Content Management
-              </h2>
-              <p className="text-slate-600" data-testid="text-cms-description">
-                Edit landing page content and marketing materials
-              </p>
-            </div>
+    let results;
+    if (toolId) {
+      results = await db
+        .select({ actionType: usageStats.actionType })
+        .from(usageStats)
+        .where(and(eq(usageStats.userId, userId), eq(usageStats.toolId, toolId)));
+    } else {
+      results = await baseQuery;
+    }
 
-            <div className="space-y-6">
-              <Card className="p-6" data-testid="card-hero-editor">
-                <CardHeader>
-                  <CardTitle>Hero Section</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid lg:grid-cols-2 gap-6">
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-2">
-                        Headline
-                      </label>
-                      <input
-                        type="text"
-                        defaultValue="Professional Keyword Research Made Simple"
-                        className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                        data-testid="input-hero-headline"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-2">
-                        Tagline
-                      </label>
-                      <textarea
-                        className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                        rows={3}
-                        defaultValue="Discover high-volume keywords for Amazon and Flipkart. Boost your product visibility with AI-powered keyword research tools."
-                        data-testid="textarea-hero-tagline"
-                      />
-                    </div>
-                  </div>
-                  <Button className="mt-4" data-testid="button-save-hero">
-                    Save Changes
-                  </Button>
-                </CardContent>
-              </Card>
+    return {
+      searches: results.filter((r: any) => r.actionType === 'search').length,
+      exports: results.filter((r: any) => r.actionType === 'export').length,
+      apiCalls: results.filter((r: any) => r.actionType === 'api_call').length,
+    };
+  }
 
-              <Card className="p-6" data-testid="card-pricing-editor">
-                <CardHeader>
-                  <CardTitle>Pricing Plans</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between p-4 border border-slate-200 rounded-lg">
-                      <div>
-                        <p className="font-medium text-slate-900" data-testid="text-starter-plan">
-                          Starter Plan
-                        </p>
-                        <p className="text-sm text-slate-600">Per tool subscription</p>
-                      </div>
-                      <div className="flex items-center space-x-4">
-                        <input
-                          type="number"
-                          defaultValue="60"
-                          className="w-20 px-3 py-2 border border-slate-300 rounded focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                          data-testid="input-starter-price"
-                        />
-                        <span className="text-slate-600">₹/year</span>
-                        <Button variant="outline" size="sm" data-testid="button-edit-starter">
-                          Edit
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
+  async getAllUsageStats(): Promise<UsageStats[]> {
+    return await db.select().from(usageStats);
+  }
+
+  // CMS operations
+  async getCmsContent(section: string): Promise<CmsContent | undefined> {
+    const [content] = await db.select().from(cmsContent).where(eq(cmsContent.section, section));
+    return content;
+  }
+
+  async updateCmsContent(section: string, content: any): Promise<CmsContent> {
+    const [updatedContent] = await db
+      .insert(cmsContent)
+      .values({ section, content })
+      .onConflictDoUpdate({
+        target: cmsContent.section,
+        set: { content, updatedAt: new Date() }
+      })
+      .returning();
+    return updatedContent;
+  }
+
+  async getAllCmsContent(): Promise<CmsContent[]> {
+    return await db.select().from(cmsContent);
+  }
+
+  // Admin operations
+  async getAllUsers(): Promise<User[]> {
+    return await db.select().from(users);
+  }
+
+  async getUsersWithSubscriptions(): Promise<(User & { subscriptions: (Subscription & { tool: Tool })[] })[]> {
+    const usersData = await db.select().from(users);
+    const result = [];
+
+    for (const user of usersData) {
+      const userSubscriptions = await this.getUserSubscriptions(user.id);
+      result.push({ ...user, subscriptions: userSubscriptions });
+    }
+
+    return result;
+  }
+
+  async getToolAnalytics(toolId: string): Promise<{ subscribers: number; revenue: number; usage: number }> {
+    const [subscriberCount] = await db
+      .select({ count: count() })
+      .from(subscriptions)
+      .where(and(eq(subscriptions.toolId, toolId), eq(subscriptions.status, "active")));
+
+    const tool = await this.getTool(toolId);
+    const revenue = subscriberCount.count * (parseFloat(tool?.price || "0"));
+
+    const [usageCount] = await db
+      .select({ count: count() })
+      .from(usageStats)
+      .where(eq(usageStats.toolId, toolId));
+
+    return {
+      subscribers: subscriberCount.count,
+      revenue,
+      usage: usageCount.count,
+    };
+  }
+
+  async getPlatformAnalytics(): Promise<{ 
+    mrr: number; 
+    activeSubscribers: number; 
+    churnRate: number; 
+    totalSearches: number;
+    revenueGrowth: number;
+    subscriberGrowth: number;
+  }> {
+    // Get active subscriptions count
+    const [activeSubsResult] = await db
+      .select({ count: count() })
+      .from(subscriptions)
+      .where(eq(subscriptions.status, "active"));
+
+    // Calculate MRR (simplified - assumes annual billing)
+    const activeSubscriptions = await db
+      .select()
+      .from(subscriptions)
+      .innerJoin(tools, eq(subscriptions.toolId, tools.id))
+      .where(eq(subscriptions.status, "active"));
+
+    const mrr = activeSubscriptions.reduce((total, sub) => {
+      return total + (parseFloat(sub.tools.price) / 12); // Convert annual to monthly
+    }, 0);
+
+    // Get total searches
+    const [searchesResult] = await db
+      .select({ count: count() })
+      .from(usageStats)
+      .where(eq(usageStats.actionType, "search"));
+
+    return {
+      mrr: Math.round(mrr),
+      activeSubscribers: activeSubsResult.count,
+      churnRate: 3.2, // Mock value - would need historical data to calculate
+      totalSearches: searchesResult.count,
+      revenueGrowth: 12.5, // Mock value
+      subscriberGrowth: 8.2, // Mock value
+    };
+  }
+
+  async updateUserRole(userId: string, role: string): Promise<User> {
+    const [updatedUser] = await db
+      .update(users)
+      .set({ role, updatedAt: new Date() })
+      .where(eq(users.id, userId))
+      .returning();
+    return updatedUser;
+  }
+
+  async suspendUser(userId: string): Promise<User> {
+    const [suspendedUser] = await db
+      .update(users)
+      .set({ role: "suspended", updatedAt: new Date() })
+      .where(eq(users.id, userId))
+      .returning();
+    return suspendedUser;
+  }
+
+  async activateUser(userId: string): Promise<User> {
+    const [activatedUser] = await db
+      .update(users)
+      .set({ role: "seller", updatedAt: new Date() })
+      .where(eq(users.id, userId))
+      .returning();
+    return activatedUser;
+  }
 }
+
+export const storage = new DatabaseStorage();
