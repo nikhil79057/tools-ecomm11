@@ -34,6 +34,10 @@ export const users = pgTable("users", {
   lastName: varchar("last_name"),
   profileImageUrl: varchar("profile_image_url"),
   role: varchar("role").default("seller"), // 'seller' | 'admin'
+  trialStartDate: timestamp("trial_start_date"),
+  trialEndDate: timestamp("trial_end_date"),
+  isTrialActive: boolean("is_trial_active").default(true),
+  hasCompletedTrial: boolean("has_completed_trial").default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -45,6 +49,8 @@ export const tools = pgTable("tools", {
   description: text("description"),
   icon: varchar("icon"),
   price: decimal("price", { precision: 10, scale: 2 }).notNull(),
+  trialDays: integer("trial_days").default(7),
+  category: varchar("category").default("keyword-research"), // 'keyword-research', 'competitor-analysis', 'listing-optimizer'
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -56,9 +62,12 @@ export const subscriptions = pgTable("subscriptions", {
   userId: varchar("user_id").references(() => users.id).notNull(),
   toolId: varchar("tool_id").references(() => tools.id).notNull(),
   status: varchar("status").default("active"), // 'active' | 'cancelled' | 'expired'
+  subscriptionType: varchar("subscription_type").default("trial"), // 'trial' | 'paid'
   startDate: timestamp("start_date").defaultNow(),
   endDate: timestamp("end_date"),
   razorpaySubscriptionId: varchar("razorpay_subscription_id"),
+  razorpayOrderId: varchar("razorpay_order_id"),
+  amount: decimal("amount", { precision: 10, scale: 2 }),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
